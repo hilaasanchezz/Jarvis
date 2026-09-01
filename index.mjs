@@ -19,11 +19,14 @@ const rl = readline.createInterface({
 });
 
 /**
- * HERRAMIENTA LOCAL: Lista los archivos y carpetas del directorio actual del proyecto.
+ * HERRAMIENTA LOCAL: Lista los archivos de una ruta específica o del proyecto por defecto.
  */
-function listarDirectorioLocal() {
+function listarDirectorioLocal(dirPath) {
     try {
-        const targetPath = process.cwd();
+        const targetPath = (!dirPath || dirPath.trim() === '') 
+            ? process.cwd() 
+            : path.resolve(dirPath);
+            
         const archivos = fs.readdirSync(targetPath);
         return JSON.stringify({ exito: true, ruta: targetPath, contenido: archivos });
     } catch (error) {
@@ -33,7 +36,6 @@ function listarDirectorioLocal() {
 
 /**
  * Carga el historial de conversación desde el archivo JSON local.
- * Si el archivo no existe, inicializa un array con el prompt del sistema instructivo.
  */
 function cargarHistorial() {
     try {
@@ -45,13 +47,16 @@ function cargarHistorial() {
         console.error("Error al cargar la memoria:", error.message);
     }
 
-    // Historial base con instrucciones de comandos por texto para modelos como llama3
+    // Historial base con instrucciones para extraer la ruta en la etiqueta
     return [
         { 
             role: 'system', 
-            content: `Eres Jarvis, un asistente personal inteligente y eficiente con memoria persistente.
+            content: `Eres Jarvis, un asistente personal inteligente, eficiente y formal. Debes dirigirte siempre al usuario llamándole "señor" con un tono respetuoso al estilo de un Mayordomo virtual avanzado.
 Tienes acceso a una herramienta local para listar archivos.
-Si el usuario te pide listar archivos, ver el contenido de la carpeta o revisar el directorio, DEBES incluir exactamente el texto '[TOOL:listarDirectorioLocal]' en tu respuesta.
+Si el usuario te pide listar una carpeta específica, ruta o directorio, DEBES responder incluyendo la etiqueta con la ruta exacta en este formato:
+[TOOL:listarDirectorioLocal|RUTADELACARPETA]
+Si solo pide listar archivos en general sin indicar ruta, usa la etiqueta así:
+[TOOL:listarDirectorioLocal|]
 Si no necesitas usar herramientas, respóndele normalmente en lenguaje natural.` 
         }
     ];
@@ -75,13 +80,11 @@ let history = cargarHistorial();
  * Envía el mensaje del usuario y el historial completo al endpoint de Ollama.
  */
 async function preguntarJarvis(userInput) {
-    // 1. Añadimos la entrada del usuario al historial activo
     history.push({ role: 'user', content: userInput });
 
     try {
         console.log("\n[SISTEMA]: Pensando respuesta...");
 
-        // 2. Realizamos la petición HTTP POST a Ollama
         const response = await fetch(OLLAMA_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -94,35 +97,35 @@ async function preguntarJarvis(userInput) {
 
         const data = await response.json();
         
-        // 3. Verificamos que la respuesta del modelo sea correcta
         if (data.message && data.message.content) {
             let botReply = data.message.content.trim();
 
-            // Comprobamos si Jarvis decidió invocar la herramienta mediante la etiqueta de texto
-            if (botReply.includes('[TOOL:listarDirectorioLocal]')) {
-                console.log(`\n[SISTEMA]: Ejecutando herramienta local -> listarDirectorioLocal`);
+            // Buscamos la etiqueta de herramienta y capturamos la ruta opcional tras el pipe '|'
+            const toolMatch = botReply.match(/\[TOOL:listarDirectorioLocal\|(.*?)\]/);
+
+            if (toolMatch) {
+                const targetPath = toolMatch[1].trim();
+                console.log(`\n[SISTEMA]: Ejecutando herramienta local -> listarDirectorioLocal("${targetPath || 'Directorio actual'}")`);
                 
-                const toolResultJson = listarDirectorioLocal();
+                const toolResultJson = listarDirectorioLocal(targetPath);
                 const parsedResult = JSON.parse(toolResultJson);
 
                 if (parsedResult.exito) {
-                    console.log(`\n[JARVIS]: Archivos encontrados en la ruta (${parsedResult.ruta}):`);
+                    console.log(`\n[JARVIS]: Archivos encontrados en (${parsedResult.ruta}):`);
                     parsedResult.contenido.forEach(archivo => {
                         console.log(`  - ${archivo}`);
                     });
                     console.log();
                 } else {
-                    console.log(`\n[JARVIS]: Error al leer el directorio: ${parsedResult.error}\n`);
+                    console.log(`\n[JARVIS]: No se pudo acceder a la ruta: ${parsedResult.error}\n`);
                 }
 
-                // Guardamos el turno en el historial y persistimos en disco
                 history.push({ role: 'assistant', content: botReply });
                 history.push({ role: 'tool', content: toolResultJson });
                 guardarHistorial(history);
                 return;
             }
 
-            // Respuesta de texto normal
             console.log(`\n[JARVIS]: ${botReply}\n`);
             history.push({ role: 'assistant', content: botReply });
             guardarHistorial(history);
@@ -141,24 +144,20 @@ async function preguntarJarvis(userInput) {
  */
 function iniciarChat() {
     rl.question('Tú: ', async (input) => {
-        // Condición de salida del programa
         if (input.toLowerCase() === 'salir') {
             console.log("¡Hasta luego!");
             rl.close();
             return;
         }
         
-        // Si el mensaje no está vacío, procesamos la consulta
         if (input.trim() !== '') {
             await preguntarJarvis(input);
         }
         
-        // Llamada recursiva para el siguiente turno
         iniciarChat();
     });
 }
 
-// Mensaje inicial de arranque del sistema
-console.log("=== SISTEMA JARVIS (CON HERRAMIENTAS LOCALES) INICIADO ===");
+console.log("=== SISTEMA JARVIS (CON RUTAS DINÁMICAS) INICIADO ===");
 console.log("Escribe tu mensaje o 'salir' para terminar.\n");
 iniciarChat();
