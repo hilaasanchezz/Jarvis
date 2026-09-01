@@ -3,7 +3,7 @@ import dotenv from 'dotenv';
 import readline from 'readline';
 import fs from 'fs';
 import path from 'path';
-import { listarDirectorioLocal } from './tools.mjs';
+import { listarDirectorioLocal, leerArchivoLocal } from './tools.mjs';
 
 // Carga las variables de entorno desde el archivo .env
 dotenv.config();
@@ -32,17 +32,21 @@ function cargarHistorial() {
         console.error("Error al cargar la memoria:", error.message);
     }
 
-    // Historial base con instrucciones para extraer la ruta en la etiqueta
+    // Historial base con instrucciones para las herramientas
     return [
         { 
             role: 'system', 
-            content: `Eres Jarvis, un asistente personal inteligente y eficiente con memoria persistente.
-Tienes acceso a una herramienta local para listar archivos.
-Si el usuario te pide listar una carpeta específica, ruta o directorio, DEBES responder incluyendo la etiqueta con la ruta exacta en este formato:
+            content: `Eres Jarvis, un asistente personal inteligente, eficiente y formal. Debes dirigirte siempre al usuario llamándole "señor" con un tono respetuoso al estilo de un mayordomo virtual avanzado.
+Tienes acceso a herramientas locales para listar directorios y leer archivos.
+
+1. Si el usuario te pide listar una carpeta, ruta o directorio, DEBES responder incluyendo esta etiqueta con la ruta exacta:
 [TOOL:listarDirectorioLocal|RUTADELACARPETA]
-Si solo pide listar archivos en general sin indicar ruta, usa la etiqueta así:
-[TOOL:listarDirectorioLocal|]
-Si no necesitas usar herramientas, respóndele normalmente en lenguaje natural.` 
+(Si solo pide listar archivos en general sin indicar ruta, usa la etiqueta así: [TOOL:listarDirectorioLocal|])
+
+2. Si el usuario te pide leer el contenido de un archivo, documento o texto, DEBES responder incluyendo esta etiqueta con la ruta exacta del archivo:
+[TOOL:leerArchivoLocal|RUTADELARCHIVOPORRUTA]
+
+Si no necesitas usar ninguna herramienta, respóndele normalmente en lenguaje natural.` 
         }
     ];
 }
@@ -85,11 +89,10 @@ async function preguntarJarvis(userInput) {
         if (data.message && data.message.content) {
             let botReply = data.message.content.trim();
 
-            // Buscamos la etiqueta de herramienta y capturamos la ruta opcional tras el pipe '|'
-            const toolMatch = botReply.match(/\[TOOL:listarDirectorioLocal\|(.*?)\]/);
-
-            if (toolMatch) {
-                const targetPath = toolMatch[1].trim();
+            // 1. Comprobamos si quiere listar un directorio
+            const toolListarMatch = botReply.match(/\[TOOL:listarDirectorioLocal\|(.*?)\]/);
+            if (toolListarMatch) {
+                const targetPath = toolListarMatch[1].trim();
                 console.log(`\n[SISTEMA]: Ejecutando herramienta local -> listarDirectorioLocal("${targetPath || 'Directorio actual'}")`);
                 
                 const toolResultJson = listarDirectorioLocal(targetPath);
@@ -111,6 +114,30 @@ async function preguntarJarvis(userInput) {
                 return;
             }
 
+            // 2. Comprobamos si quiere leer un archivo
+            const toolLeerMatch = botReply.match(/\[TOOL:leerArchivoLocal\|(.*?)\]/);
+            if (toolLeerMatch) {
+                const targetPath = toolLeerMatch[1].trim();
+                console.log(`\n[SISTEMA]: Ejecutando herramienta local -> leerArchivoLocal("${targetPath}")`);
+                
+                const toolResultJson = leerArchivoLocal(targetPath);
+                const parsedResult = JSON.parse(toolResultJson);
+
+                if (parsedResult.exito) {
+                    console.log(`\n[JARVIS]: Contenido del archivo (${parsedResult.ruta}):\n----------------------------------------`);
+                    console.log(parsedResult.contenido);
+                    console.log(`----------------------------------------\n`);
+                } else {
+                    console.log(`\n[JARVIS]: No se pudo leer el archivo: ${parsedResult.error}\n`);
+                }
+
+                history.push({ role: 'assistant', content: botReply });
+                history.push({ role: 'tool', content: toolResultJson });
+                guardarHistorial(history);
+                return;
+            }
+
+            // Si no hay herramientas involucradas
             console.log(`\n[JARVIS]: ${botReply}\n`);
             history.push({ role: 'assistant', content: botReply });
             guardarHistorial(history);
@@ -143,6 +170,6 @@ function iniciarChat() {
     });
 }
 
-console.log("=== SISTEMA JARVIS (MODULARIZADO) INICIADO ===");
+console.log("=== SISTEMA JARVIS (LECTURA DE ARCHIVOS) INICIADO ===");
 console.log("Escribe tu mensaje o 'salir' para terminar.\n");
 iniciarChat();
