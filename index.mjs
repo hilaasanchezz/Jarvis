@@ -3,6 +3,7 @@ import dotenv from 'dotenv';
 import readline from 'readline';
 import fs from 'fs';
 import path from 'path';
+import { listarDirectorioLocal } from './tools.mjs';
 
 // Carga las variables de entorno desde el archivo .env
 dotenv.config();
@@ -17,22 +18,6 @@ const rl = readline.createInterface({
     input: process.stdin,
     output: process.stdout
 });
-
-/**
- * HERRAMIENTA LOCAL: Lista los archivos de una ruta específica o del proyecto por defecto.
- */
-function listarDirectorioLocal(dirPath) {
-    try {
-        const targetPath = (!dirPath || dirPath.trim() === '') 
-            ? process.cwd() 
-            : path.resolve(dirPath);
-            
-        const archivos = fs.readdirSync(targetPath);
-        return JSON.stringify({ exito: true, ruta: targetPath, contenido: archivos });
-    } catch (error) {
-        return JSON.stringify({ exito: false, error: error.message });
-    }
-}
 
 /**
  * Carga el historial de conversación desde el archivo JSON local.
@@ -51,7 +36,7 @@ function cargarHistorial() {
     return [
         { 
             role: 'system', 
-            content: `Eres Jarvis, un asistente personal inteligente, eficiente y formal. Debes dirigirte siempre al usuario llamándole "señor" con un tono respetuoso al estilo de un Mayordomo virtual avanzado.
+            content: `Eres Jarvis, un asistente personal inteligente y eficiente con memoria persistente.
 Tienes acceso a una herramienta local para listar archivos.
 Si el usuario te pide listar una carpeta específica, ruta o directorio, DEBES responder incluyendo la etiqueta con la ruta exacta en este formato:
 [TOOL:listarDirectorioLocal|RUTADELACARPETA]
@@ -158,6 +143,6 @@ function iniciarChat() {
     });
 }
 
-console.log("=== SISTEMA JARVIS (CON RUTAS DINÁMICAS) INICIADO ===");
+console.log("=== SISTEMA JARVIS (MODULARIZADO) INICIADO ===");
 console.log("Escribe tu mensaje o 'salir' para terminar.\n");
 iniciarChat();
