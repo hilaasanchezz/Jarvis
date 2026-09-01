@@ -19,8 +19,21 @@ const rl = readline.createInterface({
 });
 
 /**
+ * HERRAMIENTA LOCAL: Lista los archivos y carpetas del directorio actual del proyecto.
+ */
+function listarDirectorioLocal() {
+    try {
+        const targetPath = process.cwd();
+        const archivos = fs.readdirSync(targetPath);
+        return JSON.stringify({ exito: true, ruta: targetPath, contenido: archivos });
+    } catch (error) {
+        return JSON.stringify({ exito: false, error: error.message });
+    }
+}
+
+/**
  * Carga el historial de conversación desde el archivo JSON local.
- * Si el archivo no existe, inicializa un array con el prompt del sistema.
+ * Si el archivo no existe, inicializa un array con el prompt del sistema instructivo.
  */
 function cargarHistorial() {
     try {
@@ -32,11 +45,14 @@ function cargarHistorial() {
         console.error("Error al cargar la memoria:", error.message);
     }
 
-    // Historial base por defecto con rol de sistema
+    // Historial base con instrucciones de comandos por texto para modelos como llama3
     return [
         { 
             role: 'system', 
-            content: 'Eres Jarvis, un asistente personal inteligente, leal y eficiente. Recuerdas las conversaciones anteriores gracias a tu memoria persistente.' 
+            content: `Eres Jarvis, un asistente personal inteligente y eficiente con memoria persistente.
+Tienes acceso a una herramienta local para listar archivos.
+Si el usuario te pide listar archivos, ver el contenido de la carpeta o revisar el directorio, DEBES incluir exactamente el texto '[TOOL:listarDirectorioLocal]' en tu respuesta.
+Si no necesitas usar herramientas, respóndele normalmente en lenguaje natural.` 
         }
     ];
 }
@@ -63,7 +79,9 @@ async function preguntarJarvis(userInput) {
     history.push({ role: 'user', content: userInput });
 
     try {
-        // 2. Realizamos la petición HTTP POST a Ollama con todo el contexto
+        console.log("\n[SISTEMA]: Pensando respuesta...");
+
+        // 2. Realizamos la petición HTTP POST a Ollama
         const response = await fetch(OLLAMA_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -78,14 +96,39 @@ async function preguntarJarvis(userInput) {
         
         // 3. Verificamos que la respuesta del modelo sea correcta
         if (data.message && data.message.content) {
-            const botReply = data.message.content;
+            let botReply = data.message.content.trim();
+
+            // Comprobamos si Jarvis decidió invocar la herramienta mediante la etiqueta de texto
+            if (botReply.includes('[TOOL:listarDirectorioLocal]')) {
+                console.log(`\n[SISTEMA]: Ejecutando herramienta local -> listarDirectorioLocal`);
+                
+                const toolResultJson = listarDirectorioLocal();
+                const parsedResult = JSON.parse(toolResultJson);
+
+                if (parsedResult.exito) {
+                    console.log(`\n[JARVIS]: Archivos encontrados en la ruta (${parsedResult.ruta}):`);
+                    parsedResult.contenido.forEach(archivo => {
+                        console.log(`  - ${archivo}`);
+                    });
+                    console.log();
+                } else {
+                    console.log(`\n[JARVIS]: Error al leer el directorio: ${parsedResult.error}\n`);
+                }
+
+                // Guardamos el turno en el historial y persistimos en disco
+                history.push({ role: 'assistant', content: botReply });
+                history.push({ role: 'tool', content: toolResultJson });
+                guardarHistorial(history);
+                return;
+            }
+
+            // Respuesta de texto normal
             console.log(`\n[JARVIS]: ${botReply}\n`);
-            
-            // 4. Añadimos la respuesta del asistente al historial y guardamos en disco
             history.push({ role: 'assistant', content: botReply });
-            guardarHistorial(history); 
+            guardarHistorial(history);
+
         } else {
-            console.log("\n[JARVIS]: (No se recibió respuesta válida)\n");
+            console.log("\n[JARVIS]: (No se recibió respuesta válida de Ollama)\n");
         }
 
     } catch (error) {
@@ -116,6 +159,6 @@ function iniciarChat() {
 }
 
 // Mensaje inicial de arranque del sistema
-console.log("=== SISTEMA JARVIS (MEMORIA PERSISTENTE) INICIADO ===");
+console.log("=== SISTEMA JARVIS (CON HERRAMIENTAS LOCALES) INICIADO ===");
 console.log("Escribe tu mensaje o 'salir' para terminar.\n");
 iniciarChat();
