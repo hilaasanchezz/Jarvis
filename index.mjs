@@ -3,6 +3,7 @@ import dotenv from 'dotenv';
 import readline from 'readline';
 import fs from 'fs';
 import path from 'path';
+import os from 'os'; // <--- Añadido aquí arriba con el resto de imports
 import { listarDirectorioLocal, leerArchivoLocal, escribirArchivoLocal } from './tools.mjs';
 
 // Carga las variables de entorno desde el archivo .env
@@ -32,24 +33,34 @@ function cargarHistorial() {
         console.error("Error al cargar la memoria:", error.message);
     }
 
-    // Historial base con instrucciones para las herramientas
+    // Obtenemos la ruta base del usuario (ej: C:\Users\hilar)
+    const userHome = os.homedir();
+    const desktopPath = path.join(userHome, 'Desktop');
+    const documentsPath = path.join(userHome, 'Documents');
+
+    // Historial de uso de las herramientas
     return [
         { 
             role: 'system', 
             content: `Eres Jarvis, un asistente personal inteligente, eficiente y formal. Debes dirigirte siempre al usuario llamándole "señor" con un tono respetuoso al estilo de un mayordomo virtual avanzado.
 Tienes acceso a herramientas locales para listar directorios, leer archivos y escribir/crear archivos.
 
-1. Si el usuario te pide listar una carpeta, ruta o directorio, DEBES responder incluyendo esta etiqueta con la ruta exacta:
+RUTAS DEL SISTEMA DEL SEÑOR:
+- Escritorio: ${desktopPath}
+- Documentos: ${documentsPath}
+- Carpeta Personal: ${userHome}
+
+REGLAS DE HERRAMIENTAS:
+1. Si el usuario te pide listar una carpeta o directorio, responde con:
 [TOOL:listarDirectorioLocal|RUTADELACARPETA]
-(Si solo pide listar archivos en general sin indicar ruta, usa la etiqueta así: [TOOL:listarDirectorioLocal|])
 
-2. Si el usuario te pide leer el contenido de un archivo, documento o texto, DEBES responder incluyendo esta etiqueta con la ruta exacta del archivo:
-[TOOL:leerArchivoLocal|RUTADELARCHIVOPORRUTA]
+2. Si el usuario te pide leer un archivo, responde con:
+[TOOL:leerArchivoLocal|RUTADELARCHIVO]
 
-3. Si el usuario te pide crear o escribir un archivo con un texto o contenido determinado, DEBES responder usando esta etiqueta separando la ruta y el contenido mediante un caracter pipe '|':
+3. Si el usuario te pide crear o escribir un archivo, responde con:
 [TOOL:escribirArchivoLocal|RUTADELARCHIVO|CONTENIDOATEXTO]
 
-Si no necesitas usar ninguna herramienta, respóndele normalmente en lenguaje natural.` 
+Nota: Si el usuario menciona "el escritorio", "mis documentos" o rutas relativas, utiliza siempre las RUTAS DEL SISTEMA indicadas arriba para construir la ruta absoluta correspondiente.` 
         }
     ];
 }
