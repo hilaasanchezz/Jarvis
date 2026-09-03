@@ -3,7 +3,7 @@ import dotenv from 'dotenv';
 import readline from 'readline';
 import fs from 'fs';
 import path from 'path';
-import { listarDirectorioLocal, leerArchivoLocal } from './tools.mjs';
+import { listarDirectorioLocal, leerArchivoLocal, escribirArchivoLocal } from './tools.mjs';
 
 // Carga las variables de entorno desde el archivo .env
 dotenv.config();
@@ -37,7 +37,7 @@ function cargarHistorial() {
         { 
             role: 'system', 
             content: `Eres Jarvis, un asistente personal inteligente, eficiente y formal. Debes dirigirte siempre al usuario llamándole "señor" con un tono respetuoso al estilo de un mayordomo virtual avanzado.
-Tienes acceso a herramientas locales para listar directorios y leer archivos.
+Tienes acceso a herramientas locales para listar directorios, leer archivos y escribir/crear archivos.
 
 1. Si el usuario te pide listar una carpeta, ruta o directorio, DEBES responder incluyendo esta etiqueta con la ruta exacta:
 [TOOL:listarDirectorioLocal|RUTADELACARPETA]
@@ -45,6 +45,9 @@ Tienes acceso a herramientas locales para listar directorios y leer archivos.
 
 2. Si el usuario te pide leer el contenido de un archivo, documento o texto, DEBES responder incluyendo esta etiqueta con la ruta exacta del archivo:
 [TOOL:leerArchivoLocal|RUTADELARCHIVOPORRUTA]
+
+3. Si el usuario te pide crear o escribir un archivo con un texto o contenido determinado, DEBES responder usando esta etiqueta separando la ruta y el contenido mediante un caracter pipe '|':
+[TOOL:escribirArchivoLocal|RUTADELARCHIVO|CONTENIDOATEXTO]
 
 Si no necesitas usar ninguna herramienta, respóndele normalmente en lenguaje natural.` 
         }
@@ -89,7 +92,7 @@ async function preguntarJarvis(userInput) {
         if (data.message && data.message.content) {
             let botReply = data.message.content.trim();
 
-            // 1. Comprobamos si quiere listar un directorio
+            // 1. Herramienta: listarDirectorioLocal
             const toolListarMatch = botReply.match(/\[TOOL:listarDirectorioLocal\|(.*?)\]/);
             if (toolListarMatch) {
                 const targetPath = toolListarMatch[1].trim();
@@ -114,7 +117,7 @@ async function preguntarJarvis(userInput) {
                 return;
             }
 
-            // 2. Comprobamos si quiere leer un archivo
+            // 2. Herramienta: leerArchivoLocal
             const toolLeerMatch = botReply.match(/\[TOOL:leerArchivoLocal\|(.*?)\]/);
             if (toolLeerMatch) {
                 const targetPath = toolLeerMatch[1].trim();
@@ -129,6 +132,28 @@ async function preguntarJarvis(userInput) {
                     console.log(`----------------------------------------\n`);
                 } else {
                     console.log(`\n[JARVIS]: No se pudo leer el archivo: ${parsedResult.error}\n`);
+                }
+
+                history.push({ role: 'assistant', content: botReply });
+                history.push({ role: 'tool', content: toolResultJson });
+                guardarHistorial(history);
+                return;
+            }
+
+            // 3. Herramienta: escribirArchivoLocal
+            const toolEscribirMatch = botReply.match(/\[TOOL:escribirArchivoLocal\|(.*?)\|(.*?)\]/s);
+            if (toolEscribirMatch) {
+                const targetPath = toolEscribirMatch[1].trim();
+                const contenido = toolEscribirMatch[2].trim();
+                console.log(`\n[SISTEMA]: Ejecutando herramienta local -> escribirArchivoLocal("${targetPath}")`);
+                
+                const toolResultJson = escribirArchivoLocal(targetPath, contenido);
+                const parsedResult = JSON.parse(toolResultJson);
+
+                if (parsedResult.exito) {
+                    console.log(`\n[JARVIS]: El archivo ha sido creado/actualizado correctamente en: ${parsedResult.ruta}\n`);
+                } else {
+                    console.log(`\n[JARVIS]: No se pudo guardar el archivo: ${parsedResult.error}\n`);
                 }
 
                 history.push({ role: 'assistant', content: botReply });
@@ -170,6 +195,6 @@ function iniciarChat() {
     });
 }
 
-console.log("=== SISTEMA JARVIS (LECTURA DE ARCHIVOS) INICIADO ===");
+console.log("=== SISTEMA JARVIS (ESCRITURA DE ARCHIVOS) INICIADO ===");
 console.log("Escribe tu mensaje o 'salir' para terminar.\n");
 iniciarChat();
