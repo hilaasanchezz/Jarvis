@@ -7,8 +7,9 @@ import {
     listarDirectorioLocal, 
     leerArchivoLocal, 
     escribirArchivoLocal, 
-    moverArchivoLocal,
-    crearCarpetaLocal 
+    moverArchivoLocal, 
+    crearCarpetaLocal,
+    ejecutarComandoLocal 
 } from './tools.mjs';
 import { obtenerSystemPrompt } from './systemPrompt.mjs';
 
@@ -95,7 +96,7 @@ async function preguntarJarvis(userInput) {
         const rawContent = data.message?.content || "";
 
         // RegEx que tolera tanto TOOL como TASK
-        const regexHerramientas = /\[(?:TOOL|TASK):(crearCarpetaLocal|listarDirectorioLocal|leerArchivoLocal|escribirArchivoLocal|moverArchivoLocal)\|(.*?)\]/gs;
+        const regexHerramientas = /\[(?:TOOL|TASK):(crearCarpetaLocal|listarDirectorioLocal|leerArchivoLocal|escribirArchivoLocal|moverArchivoLocal|ejecutarComandoLocal)\|(.*?)\]/gs;
         const llamadasEncontradas = [...rawContent.matchAll(regexHerramientas)];
 
         // SI HAY HERRAMIENTAS: Las ejecutamos todas
@@ -185,6 +186,25 @@ async function preguntarJarvis(userInput) {
                         console.log(`\n[JARVIS]: Elemento movido correctamente a: ${parsedResult.destino}\n`);
                     } else {
                         console.log(`\n[JARVIS]: No se pudo mover el elemento: ${parsedResult.error}\n`);
+                    }
+                    history.push({ role: 'tool', content: toolResultJson });
+                }
+
+                // 6. ejecutarComandoLocal
+                else if (tipoHerramienta === 'ejecutarComandoLocal') {
+                    const comando = parametrosStr.trim();
+                    console.log(`\n[SISTEMA]: Ejecutando comando de consola -> "${comando}"`);
+
+                    // Como ejecutarComandoLocal devuelve una Promise, usamos await
+                    const toolResultJson = await ejecutarComandoLocal(comando);
+                    const parsedResult = JSON.parse(toolResultJson);
+
+                    if (parsedResult.exito) {
+                        console.log(`\n[JARVIS]: Resultado del comando:\n----------------------------------------`);
+                        console.log(parsedResult.salida);
+                        console.log(`----------------------------------------\n`);
+                    } else {
+                        console.log(`\n[JARVIS]: Error al ejecutar comando: ${parsedResult.error}\n`);
                     }
                     history.push({ role: 'tool', content: toolResultJson });
                 }

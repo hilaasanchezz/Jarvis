@@ -1,5 +1,36 @@
 import fs from 'fs';
 import path from 'path';
+import { exec } from 'child_process';
+
+/**
+ * HERRAMIENTA LOCAL: Ejecuta un comando en la consola del sistema (PowerShell/CMD).
+ * 
+ * @param {string} comando - El comando de terminal a ejecutar.
+ * @returns {Promise<string>} Promesa que resuelve con el resultado en formato JSON.
+ */
+export function ejecutarComandoLocal(comando) {
+    return new Promise((resolve) => {
+        if (!comando) {
+            return resolve(JSON.stringify({ exito: false, error: "No se proporcionó ningún comando." }));
+        }
+
+        // Ejecutamos el comando con un timeout de seguridad de 15 segundos
+        exec(comando.trim(), { timeout: 15000, maxBuffer: 1024 * 1024 }, (error, stdout, stderr) => {
+            if (error) {
+                return resolve(JSON.stringify({ 
+                    exito: false, 
+                    error: error.message, 
+                    stderr: stderr ? stderr.trim() : null 
+                }));
+            }
+
+            resolve(JSON.stringify({ 
+                exito: true, 
+                salida: stdout ? stdout.trim() : "Comando ejecutado sin salida de texto." 
+            }));
+        });
+    });
+}
 
 /**
  * HERRAMIENTA LOCAL: Lista los archivos de una ruta específica o del directorio de trabajo actual por defecto.
