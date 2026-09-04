@@ -3,25 +3,34 @@ import dotenv from 'dotenv';
 import readline from 'readline';
 import fs from 'fs';
 import path from 'path';
-import os from 'os'; // <--- Añadido aquí arriba con el resto de imports
-import { listarDirectorioLocal, leerArchivoLocal, escribirArchivoLocal } from './tools.mjs';
+import { 
+    listarDirectorioLocal, 
+    leerArchivoLocal, 
+    escribirArchivoLocal, 
+    moverArchivoLocal,
+    crearCarpetaLocal 
+} from './tools.mjs';
+import { obtenerSystemPrompt } from './systemPrompt.mjs';
 
-// Carga las variables de entorno desde el archivo .env
+// Carga las variables de entorno definidas en el archivo .env
 dotenv.config();
 
-// Configuración de los endpoints y modelo de Ollama
+// Configuración de conexión con el servicio local de Ollama y el archivo de memoria
 const OLLAMA_URL = 'http://localhost:11434/api/chat';
 const MODEL_NAME = 'llama3';
 const MEMORY_FILE = path.join(process.cwd(), 'memory.json');
 
-// Configuración de la interfaz de lectura/escritura por consola (CLI)
+// Interfaz para la interacción por consola de comandos (CLI)
 const rl = readline.createInterface({
     input: process.stdin,
     output: process.stdout
 });
 
 /**
- * Carga el historial de conversación desde el archivo JSON local.
+ * Carga el historial de conversación guardado en disco para mantener la memoria.
+ * Si el archivo de memoria no existe, inicia un nuevo historial configurando el System Prompt.
+ * 
+ * @returns {Array} Array con la estructura de mensajes para Ollama.
  */
 function cargarHistorial() {
     try {
@@ -33,40 +42,19 @@ function cargarHistorial() {
         console.error("Error al cargar la memoria:", error.message);
     }
 
-    // Obtenemos la ruta base del usuario (ej: C:\Users\hilar)
-    const userHome = os.homedir();
-    const desktopPath = path.join(userHome, 'Desktop');
-    const documentsPath = path.join(userHome, 'Documents');
-
-    // Historial de uso de las herramientas
+    // Inicialización del historial con la instrucción general e integración del System Prompt
     return [
         { 
             role: 'system', 
-            content: `Eres Jarvis, un asistente personal inteligente, eficiente y formal. Debes dirigirte siempre al usuario llamándole "señor" con un tono respetuoso al estilo de un mayordomo virtual avanzado.
-Tienes acceso a herramientas locales para listar directorios, leer archivos y escribir/crear archivos.
-
-RUTAS DEL SISTEMA DEL SEÑOR:
-- Escritorio: ${desktopPath}
-- Documentos: ${documentsPath}
-- Carpeta Personal: ${userHome}
-
-REGLAS DE HERRAMIENTAS:
-1. Si el usuario te pide listar una carpeta o directorio, responde con:
-[TOOL:listarDirectorioLocal|RUTADELACARPETA]
-
-2. Si el usuario te pide leer un archivo, responde con:
-[TOOL:leerArchivoLocal|RUTADELARCHIVO]
-
-3. Si el usuario te pide crear o escribir un archivo, responde con:
-[TOOL:escribirArchivoLocal|RUTADELARCHIVO|CONTENIDOATEXTO]
-
-Nota: Si el usuario menciona "el escritorio", "mis documentos" o rutas relativas, utiliza siempre las RUTAS DEL SISTEMA indicadas arriba para construir la ruta absoluta correspondiente.` 
+            content: obtenerSystemPrompt()
         }
     ];
 }
 
 /**
- * Guarda el array de historial actualizado en el archivo JSON local.
+ * Persiste el estado actual de la conversación en el archivo JSON local.
+ * 
+ * @param {Array} history - Array de objetos de mensajes que representan la memoria del modelo.
  */
 function guardarHistorial(history) {
     try {
@@ -76,14 +64,20 @@ function guardarHistorial(history) {
     }
 }
 
-// Inicializamos la memoria cargándola desde el disco
+// Carga inicial de la memoria persistente del asistente
 let history = cargarHistorial();
 
 /**
- * Envía el mensaje del usuario y el historial completo al endpoint de Ollama.
+ * Procesa la entrada del usuario, detecta TODAS las herramientas invocadas
+ * por Ollama en un turno y las ejecuta secuencialmente con reportes individuales.
+ * 
+ * @param {string|null} userInput - Texto ingresado por el usuario o null durante llamadas recursivas.
  */
 async function preguntarJarvis(userInput) {
-    history.push({ role: 'user', content: userInput });
+    // Si la llamada proviene directamente del usuario, la registramos en el historial
+    if (userInput !== null && userInput !== undefined) {
+        history.push({ role: 'user', content: userInput });
+    }
 
     try {
         console.log("\n[SISTEMA]: Pensando respuesta...");
@@ -103,77 +97,138 @@ async function preguntarJarvis(userInput) {
         if (data.message && data.message.content) {
             let botReply = data.message.content.trim();
 
-            // 1. Herramienta: listarDirectorioLocal
-            const toolListarMatch = botReply.match(/\[TOOL:listarDirectorioLocal\|(.*?)\]/);
-            if (toolListarMatch) {
-                const targetPath = toolListarMatch[1].trim();
-                console.log(`\n[SISTEMA]: Ejecutando herramienta local -> listarDirectorioLocal("${targetPath || 'Directorio actual'}")`);
-                
-                const toolResultJson = listarDirectorioLocal(targetPath);
-                const parsedResult = JSON.parse(toolResultJson);
-
-                if (parsedResult.exito) {
-                    console.log(`\n[JARVIS]: Archivos encontrados en (${parsedResult.ruta}):`);
-                    parsedResult.contenido.forEach(archivo => {
-                        console.log(`  - ${archivo}`);
-                    });
-                    console.log();
-                } else {
-                    console.log(`\n[JARVIS]: No se pudo acceder a la ruta: ${parsedResult.error}\n`);
-                }
-
-                history.push({ role: 'assistant', content: botReply });
-                history.push({ role: 'tool', content: toolResultJson });
+            // Si Ollama responde con un string vacío tras ejecutar herramientas, cerramos el bucle amablemente
+            if (botReply === '') {
+                console.log("\n[JARVIS]: Todas las instrucciones se han completado con éxito, señor.\n");
+                history.push({ role: 'assistant', content: "Todas las instrucciones se han completado con éxito." });
                 guardarHistorial(history);
                 return;
             }
 
-            // 2. Herramienta: leerArchivoLocal
-            const toolLeerMatch = botReply.match(/\[TOOL:leerArchivoLocal\|(.*?)\]/);
-            if (toolLeerMatch) {
-                const targetPath = toolLeerMatch[1].trim();
-                console.log(`\n[SISTEMA]: Ejecutando herramienta local -> leerArchivoLocal("${targetPath}")`);
-                
-                const toolResultJson = leerArchivoLocal(targetPath);
-                const parsedResult = JSON.parse(toolResultJson);
+            // Expresión regular para detectar todas las llamadas a herramientas presentes
+            const regexHerramientas = /\[TOOL:(crearCarpetaLocal|listarDirectorioLocal|leerArchivoLocal|escribirArchivoLocal|moverArchivoLocal)\|(.*?)\]/gs;
+            const llamadasEncontradas = [...botReply.matchAll(regexHerramientas)];
 
-                if (parsedResult.exito) {
-                    console.log(`\n[JARVIS]: Contenido del archivo (${parsedResult.ruta}):\n----------------------------------------`);
-                    console.log(parsedResult.contenido);
-                    console.log(`----------------------------------------\n`);
-                } else {
-                    console.log(`\n[JARVIS]: No se pudo leer el archivo: ${parsedResult.error}\n`);
+            if (llamadasEncontradas.length > 0) {
+                history.push({ role: 'assistant', content: botReply });
+
+                for (const match of llamadasEncontradas) {
+                    const tipoHerramienta = match[1];
+                    const parametrosStr = match[2];
+
+                    // ------------------------------------------------------------------
+                    // 1. Detección y ejecución de herramienta: crearCarpetaLocal
+                    // ------------------------------------------------------------------
+                    if (tipoHerramienta === 'crearCarpetaLocal') {
+                        const targetPath = parametrosStr.trim();
+                        console.log(`\n[SISTEMA]: Ejecutando herramienta local -> crearCarpetaLocal("${targetPath}")`);
+                        
+                        const toolResultJson = crearCarpetaLocal(targetPath);
+                        const parsedResult = JSON.parse(toolResultJson);
+
+                        if (parsedResult.exito) {
+                            console.log(`\n[JARVIS]: Carpeta procesada en: ${parsedResult.ruta}\n`);
+                        } else {
+                            console.log(`\n[JARVIS]: Error al crear carpeta: ${parsedResult.error}\n`);
+                        }
+
+                        history.push({ role: 'tool', content: toolResultJson });
+                    }
+
+                    // ------------------------------------------------------------------
+                    // 2. Detección y ejecución de herramienta: listarDirectorioLocal
+                    // ------------------------------------------------------------------
+                    else if (tipoHerramienta === 'listarDirectorioLocal') {
+                        const targetPath = parametrosStr.trim();
+                        console.log(`\n[SISTEMA]: Ejecutando herramienta local -> listarDirectorioLocal("${targetPath || 'Directorio actual'}")`);
+                        
+                        const toolResultJson = listarDirectorioLocal(targetPath);
+                        const parsedResult = JSON.parse(toolResultJson);
+
+                        if (parsedResult.exito) {
+                            console.log(`\n[JARVIS]: Archivos encontrados en (${parsedResult.ruta}):`);
+                            parsedResult.contenido.forEach(archivo => {
+                                console.log(`  - ${archivo}`);
+                            });
+                            console.log();
+                        } else {
+                            console.log(`\n[JARVIS]: No se pudo acceder a la ruta: ${parsedResult.error}\n`);
+                        }
+
+                        history.push({ role: 'tool', content: toolResultJson });
+                    }
+
+                    // ------------------------------------------------------------------
+                    // 3. Detección y ejecución de herramienta: leerArchivoLocal
+                    // ------------------------------------------------------------------
+                    else if (tipoHerramienta === 'leerArchivoLocal') {
+                        const targetPath = parametrosStr.trim();
+                        console.log(`\n[SISTEMA]: Ejecutando herramienta local -> leerArchivoLocal("${targetPath}")`);
+                        
+                        const toolResultJson = leerArchivoLocal(targetPath);
+                        const parsedResult = JSON.parse(toolResultJson);
+
+                        if (parsedResult.exito) {
+                            console.log(`\n[JARVIS]: Contenido del archivo (${parsedResult.ruta}):\n----------------------------------------`);
+                            console.log(parsedResult.contenido);
+                            console.log(`----------------------------------------\n`);
+                        } else {
+                            console.log(`\n[JARVIS]: No se pudo leer el archivo: ${parsedResult.error}\n`);
+                        }
+
+                        history.push({ role: 'tool', content: toolResultJson });
+                    }
+
+                    // ------------------------------------------------------------------
+                    // 4. Detección y ejecución de herramienta: escribirArchivoLocal
+                    // ------------------------------------------------------------------
+                    else if (tipoHerramienta === 'escribirArchivoLocal') {
+                        const partes = parametrosStr.split('|');
+                        const targetPath = partes[0].trim();
+                        const contenido = partes.slice(1).join('|').trim();
+                        console.log(`\n[SISTEMA]: Ejecutando herramienta local -> escribirArchivoLocal("${targetPath}")`);
+                        
+                        const toolResultJson = escribirArchivoLocal(targetPath, contenido);
+                        const parsedResult = JSON.parse(toolResultJson);
+
+                        if (parsedResult.exito) {
+                            console.log(`\n[JARVIS]: El archivo ha sido creado/actualizado correctamente en: ${parsedResult.ruta}\n`);
+                        } else {
+                            console.log(`\n[JARVIS]: No se pudo guardar el archivo: ${parsedResult.error}\n`);
+                        }
+
+                        history.push({ role: 'tool', content: toolResultJson });
+                    }
+
+                    // ------------------------------------------------------------------
+                    // 5. Detección y ejecución de herramienta: moverArchivoLocal
+                    // ------------------------------------------------------------------
+                    else if (tipoHerramienta === 'moverArchivoLocal') {
+                        const partes = parametrosStr.split('|');
+                        const origenPath = partes[0].trim();
+                        const destinoPath = partes.slice(1).join('|').trim();
+                        console.log(`\n[SISTEMA]: Ejecutando herramienta local -> moverArchivoLocal("${origenPath}" -> "${destinoPath}")`);
+                        
+                        const toolResultJson = moverArchivoLocal(origenPath, destinoPath);
+                        const parsedResult = JSON.parse(toolResultJson);
+
+                        if (parsedResult.exito) {
+                            console.log(`\n[JARVIS]: Elemento movido correctamente a: ${parsedResult.destino}\n`);
+                        } else {
+                            console.log(`\n[JARVIS]: No se pudo mover el elemento: ${parsedResult.error}\n`);
+                        }
+
+                        history.push({ role: 'tool', content: toolResultJson });
+                    }
                 }
 
-                history.push({ role: 'assistant', content: botReply });
-                history.push({ role: 'tool', content: toolResultJson });
                 guardarHistorial(history);
-                return;
+
+                // Reintento automático para continuar evaluando si el modelo requiere más acciones
+                return await preguntarJarvis(null);
             }
 
-            // 3. Herramienta: escribirArchivoLocal
-            const toolEscribirMatch = botReply.match(/\[TOOL:escribirArchivoLocal\|(.*?)\|(.*?)\]/s);
-            if (toolEscribirMatch) {
-                const targetPath = toolEscribirMatch[1].trim();
-                const contenido = toolEscribirMatch[2].trim();
-                console.log(`\n[SISTEMA]: Ejecutando herramienta local -> escribirArchivoLocal("${targetPath}")`);
-                
-                const toolResultJson = escribirArchivoLocal(targetPath, contenido);
-                const parsedResult = JSON.parse(toolResultJson);
-
-                if (parsedResult.exito) {
-                    console.log(`\n[JARVIS]: El archivo ha sido creado/actualizado correctamente en: ${parsedResult.ruta}\n`);
-                } else {
-                    console.log(`\n[JARVIS]: No se pudo guardar el archivo: ${parsedResult.error}\n`);
-                }
-
-                history.push({ role: 'assistant', content: botReply });
-                history.push({ role: 'tool', content: toolResultJson });
-                guardarHistorial(history);
-                return;
-            }
-
-            // Si no hay herramientas involucradas
+            // Respuesta estándar cuando ya no requiere ejecutar más herramientas
             console.log(`\n[JARVIS]: ${botReply}\n`);
             history.push({ role: 'assistant', content: botReply });
             guardarHistorial(history);
@@ -188,7 +243,7 @@ async function preguntarJarvis(userInput) {
 }
 
 /**
- * Bucle recursivo para mantener la sesión interactiva abierta en la consola.
+ * Bucle recursivo para gestionar la entrada del usuario a través de la CLI.
  */
 function iniciarChat() {
     rl.question('Tú: ', async (input) => {
@@ -206,6 +261,6 @@ function iniciarChat() {
     });
 }
 
-console.log("=== SISTEMA JARVIS (ESCRITURA DE ARCHIVOS) INICIADO ===");
+console.log("=== SISTEMA JARVIS INICIADO ===");
 console.log("Escribe tu mensaje o 'salir' para terminar.\n");
 iniciarChat();
