@@ -171,3 +171,56 @@ export function crearCarpetaLocal(dirPath) {
         return JSON.stringify({ exito: false, error: error.message });
     }
 }
+
+/**
+ * HERRAMIENTA LOCAL: Busca archivos recursivamente dentro de un directorio.
+ * 
+ * @param {string} directorioBase - Ruta donde iniciar la búsqueda.
+ * @param {string} patron - Texto o extensión a buscar (ej: ".pdf", "proyecto", "notas").
+ * @returns {Promise<string>} Resultado en JSON con la lista de rutas encontradas.
+ */
+export async function buscarArchivosLocal(directorioBase, patron) {
+    return new Promise((resolve) => {
+        if (!directorioBase || !patron) {
+            return resolve(JSON.stringify({ exito: false, error: "Faltan parámetros de búsqueda." }));
+        }
+
+        const resultados = [];
+        const maxResultados = 20;
+
+        function explorar(dir) {
+            if (resultados.length >= maxResultados) return;
+
+            try {
+                const elementos = fs.readdirSync(dir, { withFileTypes: true });
+
+                for (const el of elementos) {
+                    if (resultados.length >= maxResultados) break;
+
+                    const rutaCompleta = path.join(dir, el.name);
+
+                    if (el.isDirectory()) {
+                        // Evitamos carpetas pesadas o del sistema
+                        if (!['node_modules', '.git', '$RECYCLE.BIN', 'System Volume Information'].includes(el.name)) {
+                            explorar(rutaCompleta);
+                        }
+                    } else if (el.isFile()) {
+                        if (el.name.toLowerCase().includes(patron.toLowerCase())) {
+                            resultados.push(rutaCompleta);
+                        }
+                    }
+                }
+            } catch (err) {
+                // Ignoramos carpetas sin permisos de lectura
+            }
+        }
+
+        explorar(directorioBase);
+
+        resolve(JSON.stringify({
+            exito: true,
+            totalEncontrados: resultados.length,
+            archivos: resultados
+        }));
+    });
+}

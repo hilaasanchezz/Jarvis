@@ -9,7 +9,8 @@ import {
     escribirArchivoLocal, 
     moverArchivoLocal, 
     crearCarpetaLocal,
-    ejecutarComandoLocal 
+    ejecutarComandoLocal,
+    buscarArchivosLocal
 } from './tools.mjs';
 import { obtenerSystemPrompt } from './systemPrompt.mjs';
 
@@ -96,7 +97,7 @@ async function preguntarJarvis(userInput) {
         const rawContent = data.message?.content || "";
 
         // RegEx que tolera tanto TOOL como TASK
-        const regexHerramientas = /\[(?:TOOL|TASK):(crearCarpetaLocal|listarDirectorioLocal|leerArchivoLocal|escribirArchivoLocal|moverArchivoLocal|ejecutarComandoLocal)\|(.*?)\]/gs;
+        const regexHerramientas = /\[(?:TOOL|TASK):(crearCarpetaLocal|listarDirectorioLocal|leerArchivoLocal|escribirArchivoLocal|moverArchivoLocal|ejecutarComandoLocal|buscarArchivosLocal)\|(.*?)\]/gs;
         const llamadasEncontradas = [...rawContent.matchAll(regexHerramientas)];
 
         // SI HAY HERRAMIENTAS: Las ejecutamos todas
@@ -205,6 +206,24 @@ async function preguntarJarvis(userInput) {
                         console.log(`----------------------------------------\n`);
                     } else {
                         console.log(`\n[JARVIS]: Error al ejecutar comando: ${parsedResult.error}\n`);
+                    }
+                    history.push({ role: 'tool', content: toolResultJson });
+                }
+
+                // 7. buscarArchivosLocal
+                else if (tipoHerramienta === 'buscarArchivosLocal') {
+                    const [dirBase, patron] = parametrosStr.split('|').map(p => p.trim());
+                    console.log(`\n[SISTEMA]: Buscando "${patron}" en -> ${dirBase}`);
+
+                    const toolResultJson = await buscarArchivosLocal(dirBase, patron);
+                    const parsedResult = JSON.parse(toolResultJson);
+
+                    if (parsedResult.exito) {
+                        console.log(`\n[JARVIS]: Coincidencias encontradas (${parsedResult.totalEncontrados}):\n----------------------------------------`);
+                        console.log(parsedResult.archivos.join('\n') || 'Ningún archivo encontrado.');
+                        console.log(`----------------------------------------\n`);
+                    } else {
+                        console.log(`\n[JARVIS]: Error en la búsqueda: ${parsedResult.error}\n`);
                     }
                     history.push({ role: 'tool', content: toolResultJson });
                 }

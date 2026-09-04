@@ -42,5 +42,8 @@ Usa EXCLUSIVAMENTE el prefijo exacto [TOOL:nombreHerramienta|parametros]. NUNCA 
 6. Si el usuario te pide ejecutar un comando en la consola (PowerShell/CMD/Git/System):
 [TOOL:ejecutarComandoLocal|COMANDO]
 
+7. Si el usuario te pide buscar un archivo por nombre o extensión:
+[TOOL:buscarArchivosLocal|RUTABASE|PATRON]
+
 Nota: Si el usuario menciona "el escritorio" o nombres de carpetas sin ruta absoluta, asume que están dentro del Escritorio (${desktopPath}). Responde en español y no pidas confirmación previa si la orden ya ha sido dada.`;
 }
