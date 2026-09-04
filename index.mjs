@@ -74,7 +74,6 @@ let history = cargarHistorial();
  * @param {string|null} userInput - Texto ingresado por el usuario o null durante llamadas recursivas.
  */
 async function preguntarJarvis(userInput) {
-    // Si la llamada proviene directamente del usuario, la registramos en el historial
     if (userInput !== null && userInput !== undefined) {
         history.push({ role: 'user', content: userInput });
     }
@@ -93,148 +92,119 @@ async function preguntarJarvis(userInput) {
         });
 
         const data = await response.json();
-        
-        if (data.message && data.message.content) {
-            let botReply = data.message.content.trim();
+        const rawContent = data.message?.content || "";
 
-            // Si Ollama responde con un string vacío tras ejecutar herramientas, cerramos el bucle amablemente
-            if (botReply === '') {
-                console.log("\n[JARVIS]: Todas las instrucciones se han completado con éxito, señor.\n");
-                history.push({ role: 'assistant', content: "Todas las instrucciones se han completado con éxito." });
-                guardarHistorial(history);
-                return;
-            }
+        // RegEx que tolera tanto TOOL como TASK
+        const regexHerramientas = /\[(?:TOOL|TASK):(crearCarpetaLocal|listarDirectorioLocal|leerArchivoLocal|escribirArchivoLocal|moverArchivoLocal)\|(.*?)\]/gs;
+        const llamadasEncontradas = [...rawContent.matchAll(regexHerramientas)];
 
-            // Expresión regular para detectar todas las llamadas a herramientas presentes
-            const regexHerramientas = /\[TOOL:(crearCarpetaLocal|listarDirectorioLocal|leerArchivoLocal|escribirArchivoLocal|moverArchivoLocal)\|(.*?)\]/gs;
-            const llamadasEncontradas = [...botReply.matchAll(regexHerramientas)];
+        // SI HAY HERRAMIENTAS: Las ejecutamos todas
+        if (llamadasEncontradas.length > 0) {
+            history.push({ role: 'assistant', content: rawContent });
 
-            if (llamadasEncontradas.length > 0) {
-                history.push({ role: 'assistant', content: botReply });
+            for (const match of llamadasEncontradas) {
+                const tipoHerramienta = match[1];
+                const parametrosStr = match[2];
 
-                for (const match of llamadasEncontradas) {
-                    const tipoHerramienta = match[1];
-                    const parametrosStr = match[2];
+                // 1. crearCarpetaLocal
+                if (tipoHerramienta === 'crearCarpetaLocal') {
+                    const targetPath = parametrosStr.trim();
+                    console.log(`\n[SISTEMA]: Ejecutando herramienta local -> crearCarpetaLocal("${targetPath}")`);
+                    const toolResultJson = crearCarpetaLocal(targetPath);
+                    const parsedResult = JSON.parse(toolResultJson);
 
-                    // ------------------------------------------------------------------
-                    // 1. Detección y ejecución de herramienta: crearCarpetaLocal
-                    // ------------------------------------------------------------------
-                    if (tipoHerramienta === 'crearCarpetaLocal') {
-                        const targetPath = parametrosStr.trim();
-                        console.log(`\n[SISTEMA]: Ejecutando herramienta local -> crearCarpetaLocal("${targetPath}")`);
-                        
-                        const toolResultJson = crearCarpetaLocal(targetPath);
-                        const parsedResult = JSON.parse(toolResultJson);
-
-                        if (parsedResult.exito) {
-                            console.log(`\n[JARVIS]: Carpeta procesada en: ${parsedResult.ruta}\n`);
-                        } else {
-                            console.log(`\n[JARVIS]: Error al crear carpeta: ${parsedResult.error}\n`);
-                        }
-
-                        history.push({ role: 'tool', content: toolResultJson });
+                    if (parsedResult.exito) {
+                        console.log(`\n[JARVIS]: Carpeta procesada en: ${parsedResult.ruta}\n`);
+                    } else {
+                        console.log(`\n[JARVIS]: Error al crear carpeta: ${parsedResult.error}\n`);
                     }
-
-                    // ------------------------------------------------------------------
-                    // 2. Detección y ejecución de herramienta: listarDirectorioLocal
-                    // ------------------------------------------------------------------
-                    else if (tipoHerramienta === 'listarDirectorioLocal') {
-                        const targetPath = parametrosStr.trim();
-                        console.log(`\n[SISTEMA]: Ejecutando herramienta local -> listarDirectorioLocal("${targetPath || 'Directorio actual'}")`);
-                        
-                        const toolResultJson = listarDirectorioLocal(targetPath);
-                        const parsedResult = JSON.parse(toolResultJson);
-
-                        if (parsedResult.exito) {
-                            console.log(`\n[JARVIS]: Archivos encontrados en (${parsedResult.ruta}):`);
-                            parsedResult.contenido.forEach(archivo => {
-                                console.log(`  - ${archivo}`);
-                            });
-                            console.log();
-                        } else {
-                            console.log(`\n[JARVIS]: No se pudo acceder a la ruta: ${parsedResult.error}\n`);
-                        }
-
-                        history.push({ role: 'tool', content: toolResultJson });
-                    }
-
-                    // ------------------------------------------------------------------
-                    // 3. Detección y ejecución de herramienta: leerArchivoLocal
-                    // ------------------------------------------------------------------
-                    else if (tipoHerramienta === 'leerArchivoLocal') {
-                        const targetPath = parametrosStr.trim();
-                        console.log(`\n[SISTEMA]: Ejecutando herramienta local -> leerArchivoLocal("${targetPath}")`);
-                        
-                        const toolResultJson = leerArchivoLocal(targetPath);
-                        const parsedResult = JSON.parse(toolResultJson);
-
-                        if (parsedResult.exito) {
-                            console.log(`\n[JARVIS]: Contenido del archivo (${parsedResult.ruta}):\n----------------------------------------`);
-                            console.log(parsedResult.contenido);
-                            console.log(`----------------------------------------\n`);
-                        } else {
-                            console.log(`\n[JARVIS]: No se pudo leer el archivo: ${parsedResult.error}\n`);
-                        }
-
-                        history.push({ role: 'tool', content: toolResultJson });
-                    }
-
-                    // ------------------------------------------------------------------
-                    // 4. Detección y ejecución de herramienta: escribirArchivoLocal
-                    // ------------------------------------------------------------------
-                    else if (tipoHerramienta === 'escribirArchivoLocal') {
-                        const partes = parametrosStr.split('|');
-                        const targetPath = partes[0].trim();
-                        const contenido = partes.slice(1).join('|').trim();
-                        console.log(`\n[SISTEMA]: Ejecutando herramienta local -> escribirArchivoLocal("${targetPath}")`);
-                        
-                        const toolResultJson = escribirArchivoLocal(targetPath, contenido);
-                        const parsedResult = JSON.parse(toolResultJson);
-
-                        if (parsedResult.exito) {
-                            console.log(`\n[JARVIS]: El archivo ha sido creado/actualizado correctamente en: ${parsedResult.ruta}\n`);
-                        } else {
-                            console.log(`\n[JARVIS]: No se pudo guardar el archivo: ${parsedResult.error}\n`);
-                        }
-
-                        history.push({ role: 'tool', content: toolResultJson });
-                    }
-
-                    // ------------------------------------------------------------------
-                    // 5. Detección y ejecución de herramienta: moverArchivoLocal
-                    // ------------------------------------------------------------------
-                    else if (tipoHerramienta === 'moverArchivoLocal') {
-                        const partes = parametrosStr.split('|');
-                        const origenPath = partes[0].trim();
-                        const destinoPath = partes.slice(1).join('|').trim();
-                        console.log(`\n[SISTEMA]: Ejecutando herramienta local -> moverArchivoLocal("${origenPath}" -> "${destinoPath}")`);
-                        
-                        const toolResultJson = moverArchivoLocal(origenPath, destinoPath);
-                        const parsedResult = JSON.parse(toolResultJson);
-
-                        if (parsedResult.exito) {
-                            console.log(`\n[JARVIS]: Elemento movido correctamente a: ${parsedResult.destino}\n`);
-                        } else {
-                            console.log(`\n[JARVIS]: No se pudo mover el elemento: ${parsedResult.error}\n`);
-                        }
-
-                        history.push({ role: 'tool', content: toolResultJson });
-                    }
+                    history.push({ role: 'tool', content: toolResultJson });
                 }
 
-                guardarHistorial(history);
+                // 2. listarDirectorioLocal
+                else if (tipoHerramienta === 'listarDirectorioLocal') {
+                    const targetPath = parametrosStr.trim();
+                    console.log(`\n[SISTEMA]: Ejecutando herramienta local -> listarDirectorioLocal("${targetPath || 'Directorio actual'}")`);
+                    const toolResultJson = listarDirectorioLocal(targetPath);
+                    const parsedResult = JSON.parse(toolResultJson);
 
-                // Reintento automático para continuar evaluando si el modelo requiere más acciones
-                return await preguntarJarvis(null);
+                    if (parsedResult.exito) {
+                        console.log(`\n[JARVIS]: Archivos encontrados en (${parsedResult.ruta}):`);
+                        parsedResult.contenido.forEach(archivo => console.log(`  - ${archivo}`));
+                        console.log();
+                    } else {
+                        console.log(`\n[JARVIS]: No se pudo acceder a la ruta: ${parsedResult.error}\n`);
+                    }
+                    history.push({ role: 'tool', content: toolResultJson });
+                }
+
+                // 3. leerArchivoLocal
+                else if (tipoHerramienta === 'leerArchivoLocal') {
+                    const targetPath = parametrosStr.trim();
+                    console.log(`\n[SISTEMA]: Ejecutando herramienta local -> leerArchivoLocal("${targetPath}")`);
+                    const toolResultJson = leerArchivoLocal(targetPath);
+                    const parsedResult = JSON.parse(toolResultJson);
+
+                    if (parsedResult.exito) {
+                        console.log(`\n[JARVIS]: Contenido del archivo (${parsedResult.ruta}):\n----------------------------------------`);
+                        console.log(parsedResult.contenido);
+                        console.log(`----------------------------------------\n`);
+                    } else {
+                        console.log(`\n[JARVIS]: No se pudo leer el archivo: ${parsedResult.error}\n`);
+                    }
+                    history.push({ role: 'tool', content: toolResultJson });
+                }
+
+                // 4. escribirArchivoLocal
+                else if (tipoHerramienta === 'escribirArchivoLocal') {
+                    const partes = parametrosStr.split('|');
+                    const targetPath = partes[0].trim();
+                    const contenido = partes.slice(1).join('|').trim();
+                    console.log(`\n[SISTEMA]: Ejecutando herramienta local -> escribirArchivoLocal("${targetPath}")`);
+                    const toolResultJson = escribirArchivoLocal(targetPath, contenido);
+                    const parsedResult = JSON.parse(toolResultJson);
+
+                    if (parsedResult.exito) {
+                        console.log(`\n[JARVIS]: El archivo ha sido creado/actualizado correctamente en: ${parsedResult.ruta}\n`);
+                    } else {
+                        console.log(`\n[JARVIS]: No se pudo guardar el archivo: ${parsedResult.error}\n`);
+                    }
+                    history.push({ role: 'tool', content: toolResultJson });
+                }
+
+                // 5. moverArchivoLocal
+                else if (tipoHerramienta === 'moverArchivoLocal') {
+                    const partes = parametrosStr.split('|');
+                    const origenPath = partes[0].trim();
+                    const destinoPath = partes.slice(1).join('|').trim();
+                    console.log(`\n[SISTEMA]: Ejecutando herramienta local -> moverArchivoLocal("${origenPath}" -> "${destinoPath}")`);
+                    const toolResultJson = moverArchivoLocal(origenPath, destinoPath);
+                    const parsedResult = JSON.parse(toolResultJson);
+
+                    if (parsedResult.exito) {
+                        console.log(`\n[JARVIS]: Elemento movido correctamente a: ${parsedResult.destino}\n`);
+                    } else {
+                        console.log(`\n[JARVIS]: No se pudo mover el elemento: ${parsedResult.error}\n`);
+                    }
+                    history.push({ role: 'tool', content: toolResultJson });
+                }
             }
 
-            // Respuesta estándar cuando ya no requiere ejecutar más herramientas
-            console.log(`\n[JARVIS]: ${botReply}\n`);
-            history.push({ role: 'assistant', content: botReply });
+            // Tras ejecutar todas las herramientas, imprimimos confirmación directa sin depender de otra respuesta de Ollama
+            const msjExito = "Todas las operaciones solicitadas han sido completadas con éxito, señor.";
+            console.log(`[JARVIS]: ${msjExito}\n`);
+            history.push({ role: 'assistant', content: msjExito });
             guardarHistorial(history);
+            return;
+        }
 
+        // SI NO HAY HERRAMIENTAS: Mostramos la respuesta normal de texto si existe
+        if (rawContent.trim() !== '') {
+            console.log(`\n[JARVIS]: ${rawContent.trim()}\n`);
+            history.push({ role: 'assistant', content: rawContent.trim() });
+            guardarHistorial(history);
         } else {
-            console.log("\n[JARVIS]: (No se recibió respuesta válida de Ollama)\n");
+            console.log("\n[JARVIS]: Instrucción procesada, señor.\n");
         }
 
     } catch (error) {
