@@ -224,3 +224,26 @@ export async function buscarArchivosLocal(directorioBase, patron) {
         }));
     });
 }
+
+/**
+ * HERRAMIENTA LOCAL: Abre un programa, URL, archivo o carpeta en la interfaz gráfica.
+ * 
+ * @param {string} objetivo - Nombre del programa (calc, chrome, notepad), URL o ruta.
+ * @returns {Promise<string>} Resultado en JSON.
+ */
+export function abrirAplicacionLocal(objetivo) {
+    return new Promise((resolve) => {
+        if (!objetivo) {
+            return resolve(JSON.stringify({ exito: false, error: "No se especificó qué abrir." }));
+        }
+
+        const comando = `powershell -Command "Start-Process '${objetivo.trim()}'"`;
+
+        exec(comando, { timeout: 10000 }, (error) => {
+            if (error) {
+                return resolve(JSON.stringify({ exito: false, error: error.message }));
+            }
+            resolve(JSON.stringify({ exito: true, mensaje: `Abierto con éxito: ${objetivo}` }));
+        });
+    });
+}

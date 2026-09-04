@@ -10,7 +10,8 @@ import {
     moverArchivoLocal, 
     crearCarpetaLocal,
     ejecutarComandoLocal,
-    buscarArchivosLocal
+    buscarArchivosLocal,
+    abrirAplicacionLocal
 } from './tools.mjs';
 import { obtenerSystemPrompt } from './systemPrompt.mjs';
 
@@ -97,7 +98,7 @@ async function preguntarJarvis(userInput) {
         const rawContent = data.message?.content || "";
 
         // RegEx que tolera tanto TOOL como TASK
-        const regexHerramientas = /\[(?:TOOL|TASK):(crearCarpetaLocal|listarDirectorioLocal|leerArchivoLocal|escribirArchivoLocal|moverArchivoLocal|ejecutarComandoLocal|buscarArchivosLocal)\|(.*?)\]/gs;
+        const regexHerramientas = /\[(?:TOOL|TASK):(crearCarpetaLocal|listarDirectorioLocal|leerArchivoLocal|escribirArchivoLocal|moverArchivoLocal|ejecutarComandoLocal|buscarArchivosLocal|abrirAplicacionLocal)\|(.*?)\]/gs;
         const llamadasEncontradas = [...rawContent.matchAll(regexHerramientas)];
 
         // SI HAY HERRAMIENTAS: Las ejecutamos todas
@@ -224,6 +225,22 @@ async function preguntarJarvis(userInput) {
                         console.log(`----------------------------------------\n`);
                     } else {
                         console.log(`\n[JARVIS]: Error en la búsqueda: ${parsedResult.error}\n`);
+                    }
+                    history.push({ role: 'tool', content: toolResultJson });
+                }
+
+                // 8. abrirAplicacionLocal
+                else if (tipoHerramienta === 'abrirAplicacionLocal') {
+                    const objetivo = parametrosStr.trim();
+                    console.log(`\n[SISTEMA]: Abriendo en el sistema -> "${objetivo}"`);
+
+                    const toolResultJson = await abrirAplicacionLocal(objetivo);
+                    const parsedResult = JSON.parse(toolResultJson);
+
+                    if (parsedResult.exito) {
+                        console.log(`\n[JARVIS]: Aplicación/URL iniciada correctamente.\n`);
+                    } else {
+                        console.log(`\n[JARVIS]: Error al abrir: ${parsedResult.error}\n`);
                     }
                     history.push({ role: 'tool', content: toolResultJson });
                 }
