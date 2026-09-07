@@ -247,3 +247,39 @@ export function abrirAplicacionLocal(objetivo) {
         });
     });
 }
+
+import yts from 'yt-search';
+
+/**
+ * HERRAMIENTA LOCAL: Busca un vídeo/canción en YouTube y abre directamente el enlace para reproducirlo.
+ * 
+ * @param {string} busqueda - Nombre del vídeo, canción o artista.
+ * @returns {Promise<string>}
+ */
+export async function reproducirMusicaLocal(busqueda) {
+    try {
+        if (!busqueda) return JSON.stringify({ exito: false, error: "Falta término de búsqueda." });
+
+        const r = await yts(busqueda);
+        const videos = r.videos;
+
+        if (!videos || videos.length === 0) {
+            return JSON.stringify({ exito: false, error: "No se encontraron vídeos." });
+        }
+
+        const primerVideoUrl = videos[0].url;
+        const titulo = videos[0].title;
+
+        // Lanzamos la URL directa del primer vídeo/canción
+        const comando = `powershell -Command "Start-Process '${primerVideoUrl}'"`;
+        
+        return new Promise((resolve) => {
+            exec(comando, { timeout: 10000 }, (error) => {
+                if (error) return resolve(JSON.stringify({ exito: false, error: error.message }));
+                resolve(JSON.stringify({ exito: true, titulo, url: primerVideoUrl }));
+            });
+        });
+    } catch (err) {
+        return JSON.stringify({ exito: false, error: err.message });
+    }
+}

@@ -11,7 +11,8 @@ import {
     crearCarpetaLocal,
     ejecutarComandoLocal,
     buscarArchivosLocal,
-    abrirAplicacionLocal
+    abrirAplicacionLocal,
+    reproducirMusicaLocal
 } from './tools.mjs';
 import { obtenerSystemPrompt } from './systemPrompt.mjs';
 
@@ -98,7 +99,8 @@ async function preguntarJarvis(userInput) {
         const rawContent = data.message?.content || "";
 
         // RegEx que tolera tanto TOOL como TASK
-        const regexHerramientas = /\[(?:TOOL|TASK):(crearCarpetaLocal|listarDirectorioLocal|leerArchivoLocal|escribirArchivoLocal|moverArchivoLocal|ejecutarComandoLocal|buscarArchivosLocal|abrirAplicacionLocal)\|(.*?)\]/gs;
+        // Acepta la herramienta tanto si viene con corchetes [...] como si no los incluye
+        const regexHerramientas = /\[(?:TOOL|TASK):(crearCarpetaLocal|listarDirectorioLocal|leerArchivoLocal|escribirArchivoLocal|moverArchivoLocal|ejecutarComandoLocal|buscarArchivosLocal|abrirAplicacionLocal|reproducirMusicaLocal)\|(.*?)\]/gs;
         const llamadasEncontradas = [...rawContent.matchAll(regexHerramientas)];
 
         // SI HAY HERRAMIENTAS: Las ejecutamos todas
@@ -241,6 +243,22 @@ async function preguntarJarvis(userInput) {
                         console.log(`\n[JARVIS]: Aplicación/URL iniciada correctamente.\n`);
                     } else {
                         console.log(`\n[JARVIS]: Error al abrir: ${parsedResult.error}\n`);
+                    }
+                    history.push({ role: 'tool', content: toolResultJson });
+                }
+
+                // 9. reproducirMusicaLocal
+                else if (tipoHerramienta === 'reproducirMusicaLocal') {
+                    const busqueda = parametrosStr.trim();
+                    console.log(`\n[SISTEMA]: Buscando y reproduciendo -> "${busqueda}"`);
+
+                    const toolResultJson = await reproducirMusicaLocal(busqueda);
+                    const parsedResult = JSON.parse(toolResultJson);
+
+                    if (parsedResult.exito) {
+                        console.log(`\n[JARVIS]: Reproduciendo: "${parsedResult.titulo}"\n[URL]: ${parsedResult.url}\n`);
+                    } else {
+                        console.log(`\n[JARVIS]: Error al reproducir: ${parsedResult.error}\n`);
                     }
                     history.push({ role: 'tool', content: toolResultJson });
                 }
