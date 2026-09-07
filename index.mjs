@@ -14,6 +14,12 @@ import {
     abrirAplicacionLocal,
     reproducirMusicaLocal
 } from './tools.mjs';
+import { 
+    autenticarSpotify, 
+    reproducirSpotify, 
+    siguienteCancionSpotify, 
+    anteriorCancionSpotify 
+} from './spotify.mjs';
 import { obtenerSystemPrompt } from './systemPrompt.mjs';
 
 // Carga las variables de entorno definidas en el archivo .env
@@ -98,9 +104,8 @@ async function preguntarJarvis(userInput) {
         const data = await response.json();
         const rawContent = data.message?.content || "";
 
-        // RegEx que tolera tanto TOOL como TASK
-        // Acepta la herramienta tanto si viene con corchetes [...] como si no los incluye
-        const regexHerramientas = /\[(?:TOOL|TASK):(crearCarpetaLocal|listarDirectorioLocal|leerArchivoLocal|escribirArchivoLocal|moverArchivoLocal|ejecutarComandoLocal|buscarArchivosLocal|abrirAplicacionLocal|reproducirMusicaLocal)\|(.*?)\]/gs;
+        // RegEx que tolera tanto TOOL como TASK e incluye todas las herramientas de Spotify
+        const regexHerramientas = /\[(?:TOOL|TASK):(crearCarpetaLocal|listarDirectorioLocal|leerArchivoLocal|escribirArchivoLocal|moverArchivoLocal|ejecutarComandoLocal|buscarArchivosLocal|abrirAplicacionLocal|reproducirMusicaLocal|reproducirSpotify|siguienteCancionSpotify|anteriorCancionSpotify)(?:\|([^\]]*))?\]/gs;
         const llamadasEncontradas = [...rawContent.matchAll(regexHerramientas)];
 
         // SI HAY HERRAMIENTAS: Las ejecutamos todas
@@ -109,7 +114,7 @@ async function preguntarJarvis(userInput) {
 
             for (const match of llamadasEncontradas) {
                 const tipoHerramienta = match[1];
-                const parametrosStr = match[2];
+                const parametrosStr = match[2] || '';
 
                 // 1. crearCarpetaLocal
                 if (tipoHerramienta === 'crearCarpetaLocal') {
@@ -199,7 +204,6 @@ async function preguntarJarvis(userInput) {
                     const comando = parametrosStr.trim();
                     console.log(`\n[SISTEMA]: Ejecutando comando de consola -> "${comando}"`);
 
-                    // Como ejecutarComandoLocal devuelve una Promise, usamos await
                     const toolResultJson = await ejecutarComandoLocal(comando);
                     const parsedResult = JSON.parse(toolResultJson);
 
@@ -247,10 +251,10 @@ async function preguntarJarvis(userInput) {
                     history.push({ role: 'tool', content: toolResultJson });
                 }
 
-                // 9. reproducirMusicaLocal
+                // 9. reproducirMusicaLocal (YouTube)
                 else if (tipoHerramienta === 'reproducirMusicaLocal') {
                     const busqueda = parametrosStr.trim();
-                    console.log(`\n[SISTEMA]: Buscando y reproduciendo -> "${busqueda}"`);
+                    console.log(`\n[SISTEMA]: Buscando y reproduciendo en YouTube -> "${busqueda}"`);
 
                     const toolResultJson = await reproducirMusicaLocal(busqueda);
                     const parsedResult = JSON.parse(toolResultJson);
@@ -262,9 +266,55 @@ async function preguntarJarvis(userInput) {
                     }
                     history.push({ role: 'tool', content: toolResultJson });
                 }
+
+                // 10. reproducirSpotify (Spotify Web API)
+                else if (tipoHerramienta === 'reproducirSpotify') {
+                    const busqueda = parametrosStr.trim();
+                    console.log(`\n[SISTEMA]: Buscando y reproduciendo en Spotify -> "${busqueda}"`);
+
+                    const toolResultJson = await reproducirSpotify(busqueda);
+                    const parsedResult = JSON.parse(toolResultJson);
+
+                    if (parsedResult.exito) {
+                        console.log(`\n[JARVIS]: ${parsedResult.mensaje}\n`);
+                    } else {
+                        console.log(`\n[JARVIS]: Error en Spotify: ${parsedResult.error}\n`);
+                    }
+                    history.push({ role: 'tool', content: toolResultJson });
+                }
+
+                // 11. siguienteCancionSpotify
+                else if (tipoHerramienta === 'siguienteCancionSpotify') {
+                    console.log(`\n[SISTEMA]: Pasando a la siguiente canción en Spotify...`);
+
+                    const toolResultJson = await siguienteCancionSpotify();
+                    const parsedResult = JSON.parse(toolResultJson);
+
+                    if (parsedResult.exito) {
+                        console.log(`\n[JARVIS]: ${parsedResult.mensaje}\n`);
+                    } else {
+                        console.log(`\n[JARVIS]: Error en Spotify: ${parsedResult.error}\n`);
+                    }
+                    history.push({ role: 'tool', content: toolResultJson });
+                }
+
+                // 12. anteriorCancionSpotify
+                else if (tipoHerramienta === 'anteriorCancionSpotify') {
+                    console.log(`\n[SISTEMA]: Volviendo a la canción anterior en Spotify...`);
+
+                    const toolResultJson = await anteriorCancionSpotify();
+                    const parsedResult = JSON.parse(toolResultJson);
+
+                    if (parsedResult.exito) {
+                        console.log(`\n[JARVIS]: ${parsedResult.mensaje}\n`);
+                    } else {
+                        console.log(`\n[JARVIS]: Error en Spotify: ${parsedResult.error}\n`);
+                    }
+                    history.push({ role: 'tool', content: toolResultJson });
+                }
             }
 
-            // Tras ejecutar todas las herramientas, imprimimos confirmación directa sin depender de otra respuesta de Ollama
+            // Tras ejecutar todas las herramientas, imprimimos confirmación directa
             const msjExito = "Todas las operaciones solicitadas han sido completadas con éxito, señor.";
             console.log(`[JARVIS]: ${msjExito}\n`);
             history.push({ role: 'assistant', content: msjExito });
@@ -294,7 +344,7 @@ function iniciarChat() {
         if (input.toLowerCase() === 'salir') {
             console.log("¡Hasta luego!");
             rl.close();
-            return;
+            process.exit(0);
         }
         
         if (input.trim() !== '') {
@@ -305,6 +355,20 @@ function iniciarChat() {
     });
 }
 
-console.log("=== SISTEMA JARVIS INICIADO ===");
-console.log("Escribe tu mensaje o 'salir' para terminar.\n");
-iniciarChat();
+/**
+ * Función de arranque general que autentica subsistemas e inicia la CLI.
+ */
+async function iniciarSistema() {
+    console.log("=== SISTEMA JARVIS INICIADO ===");
+    console.log("[SISTEMA]: Inicializando integración con Spotify...");
+    
+    try {
+        await autenticarSpotify();
+        console.log("Escribe tu mensaje o 'salir' para terminar.\n");
+        iniciarChat();
+    } catch (error) {
+        console.error("[ERROR CRÍTICO]: No se pudo autenticar Spotify:", error.message);
+    }
+}
+
+iniciarSistema();
